@@ -1,0 +1,26 @@
+{
+  "name": "dynamodb-audit-logger",
+  "version": "1.0.0",
+  "description": "Serverless DynamoDB Stream audit logging system with SAM",
+  "main": "src/handlers/processStream.js",
+  "scripts": {
+    "test": "jest --runInBand",
+    "lint": "echo \"No lint configured\""
+  },
+  "keywords": [
+    "aws",
+    "sam",
+    "dynamodb",
+    "streams",
+    "audit"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "aws-sdk": "^2.1692.0",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}
