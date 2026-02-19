@@ -1,0 +1,115 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: DynamoDB Stream Audit Logger - Serverless Event Audit System
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Timeout: 30
+    MemorySize: 256
+
+Resources:
+  AuditBucket:
+    Type: AWS::S3::Bucket
+
+  MainTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: MainTable
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+
+  AuditLogsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: AuditLogsTable
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: auditId
+          AttributeType: S
+        - AttributeName: logType
+          AttributeType: S
+        - AttributeName: occurredAt
+          AttributeType: S
+      KeySchema:
+        - AttributeName: auditId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: LogTypeOccurredAtIndex
+          KeySchema:
+            - AttributeName: logType
+              KeyType: HASH
+            - AttributeName: occurredAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  AuditQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: audit-events-queue
+
+  ProcessStreamLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: src/handlers/processStream.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AuditLogsTable
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt AuditQueue.QueueName
+        - S3CrudPolicy:
+            BucketName: !Ref AuditBucket
+      Environment:
+        Variables:
+          AUDIT_TABLE_NAME: !Ref AuditLogsTable
+          AUDIT_BUCKET_NAME: !Ref AuditBucket
+          AUDIT_QUEUE_URL: !Ref AuditQueue
+      Events:
+        MainTableStream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt MainTable.StreamArn
+            StartingPosition: LATEST
+            BatchSize: 100
+            MaximumRetryAttempts: 2
+
+  GetAuditLogsLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: src/handlers/getAudits.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref AuditLogsTable
+      Environment:
+        Variables:
+          AUDIT_TABLE_NAME: !Ref AuditLogsTable
+          AUDIT_DATE_INDEX_NAME: LogTypeOccurredAtIndex
+      Events:
+        GetAuditsApi:
+          Type: Api
+          Properties:
+            Path: /audits
+            Method: get
+
+Outputs:
+  ApiUrl:
+    Description: API endpoint URL for GetAuditLogsLambda
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/audits"
+  MainTableName:
+    Value: !Ref MainTable
+  AuditLogsTableName:
+    Value: !Ref AuditLogsTable
+  AuditQueueUrl:
+    Value: !Ref AuditQueue
+  AuditBucketName:
+    Value: !Ref AuditBucket
